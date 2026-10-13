@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TankMon trends</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface-0: #f4f4f2; --surface-1: #fcfcfb; --edge: #e2e1dc; --grid: #ecebe6;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+  --band: rgba(42, 120, 214, .08); --band-edge: rgba(42, 120, 214, .28);
+  --series-1: #2a78d6; --series-2: #eb6834; --alarm: #c4302b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-0: #111110; --surface-1: #1a1a19; --edge: #2c2c2a; --grid: #252523;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a998f;
+    --band: rgba(57, 135, 229, .12); --band-edge: rgba(57, 135, 229, .35);
+    --series-1: #3987e5; --series-2: #d95926; --alarm: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #111110; --surface-1: #1a1a19; --edge: #2c2c2a; --grid: #252523;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a998f;
+  --band: rgba(57, 135, 229, .12); --band-edge: rgba(57, 135, 229, .35);
+  --series-1: #3987e5; --series-2: #d95926; --alarm: #e66767;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 20px; margin: 0; font-weight: 650; }
+.sub { color: var(--text-secondary); font-size: 13px; margin: 2px 0 14px; }
+.ranges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.ranges button { font: inherit; font-size: 14px; padding: 6px 11px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--edge); background: var(--surface-1); color: var(--text-secondary); }
+.ranges button[aria-pressed="true"] { background: var(--text-primary); color: var(--surface-1); border-color: var(--text-primary); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.tile { background: var(--surface-1); border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px; }
+.tile .k { font-size: 12px; color: var(--text-secondary); }
+.tile .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tile .u { font-size: 13px; color: var(--text-muted); font-weight: 400; margin-left: 3px; }
+.tile .o { font-size: 12px; color: var(--alarm); }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 10px; }
+.chart { background: var(--surface-1); border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px 6px; position: relative; }
+.chart h2 { font-size: 14px; font-weight: 600; margin: 0 0 4px; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.chart h2 .unit { color: var(--text-muted); font-weight: 400; }
+.legend { display: flex; gap: 12px; font-size: 12px; color: var(--text-secondary); font-weight: 400; }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+.plot { position: relative; height: 190px; touch-action: pan-y; }
+.plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.tip { position: absolute; top: 4px; pointer-events: none; background: var(--surface-1); border: 1px solid var(--edge);
+  border-radius: 8px; padding: 5px 8px; font-size: 12px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,.12); display: none; z-index: 2; }
+.tip b { font-variant-numeric: tabular-nums; }
+.tip .t { color: var(--text-secondary); }
+.note { color: var(--text-muted); font-size: 12px; margin: 10px 0 0; }
+.msg { padding: 30px 0; color: var(--text-secondary); }
+details { margin-top: 14px; font-size: 13px; }
+summary { cursor: pointer; color: var(--text-secondary); }
+.tablewrap { max-height: 360px; overflow: auto; margin-top: 8px; border: 1px solid var(--edge); border-radius: 8px; background: var(--surface-1); }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 4px 10px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--surface-1); color: var(--text-secondary); font-weight: 600; }
+th:first-child, td:first-child { text-align: left; }
+@media (max-width: 420px) { .charts { grid-template-columns: 1fr; } .plot { height: 170px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>VRG Marine Aquarium</h1>
+  <p class="sub" id="sub">Loading…</p>
+  <div class="ranges" id="ranges" role="group" aria-label="Time range"></div>
+  <div class="tiles" id="tiles"></div>
+  <div class="charts" id="charts"></div>
+  <p class="note" id="note"></p>
+  <details id="tableBox"><summary>Show the numbers as a table</summary><div class="tablewrap" id="table"></div></details>
+</main>
+<script>
+var RANGES = [[1, '1 hr'], [3, '3 hr'], [6, '6 hr'], [12, '12 hr'], [24, '24 hr'], [168, '7 days'], [720, '30 days'], [2160, '90 days'], [4320, '180 days']];
+var F = function (c) { return c * 9 / 5 + 32; };
+// Charts: one per measurement, never two scales on one chart. Temperatures share one.
+var CHARTS = [
+  { title: 'Temperature', unit: '°F', digits: 1, series: [['temp_c', 'Tank'], ['sump_c', 'Sump']], conv: F, range: 'temp_c' },
+  { title: 'pH', unit: '', digits: 2, series: [['ph', 'pH']], range: 'ph' },
+  { title: 'Salinity', unit: 'PSU', digits: 1, series: [['sal', 'Salinity']], range: 'sal' },
+  { title: 'Dissolved oxygen', unit: 'mg/L', digits: 1, series: [['do', 'DO']], range: 'do' },
+  { title: 'ORP', unit: 'mV', digits: 0, series: [['orp', 'ORP']], range: 'orp' }
+];
+var DATA_URL = 'https://script.google.com/macros/s/AKfycbxXAemYxkqBEZi3tRjn0YR3WY0q92_eOrzdaaWCXQoJnv5EJPiNs1zYkZ-4Wdr7sKZr/exec';   // set in the hosted copy; empty when served by Apps Script
+var hours = 24, data = null, timer = null, hover = null;
+try { var h = Number(location.hash.slice(1)); if (RANGES.some(function (r) { return r[0] === h; })) hours = h; } catch (e) {}
+
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function fmt(v, d) { return v == null || isNaN(v) ? '–' : Number(v).toFixed(d); }
+function when(ts, withDate) {
+  var d = new Date(ts * 1000);
+  var t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return withDate ? d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + t : t;
+}
+
+function buildRanges() {
+  var box = document.getElementById('ranges');
+  RANGES.forEach(function (r) {
+    var b = el('button', '', r[1]);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', r[0] === hours ? 'true' : 'false');
+    b.onclick = function () { hours = r[0]; try { history.replaceState(null, '', '#' + hours); } catch (e) {}
+      Array.prototype.forEach.call(box.children, function (c) { c.setAttribute('aria-pressed', c === b ? 'true' : 'false'); });
+      load(); };
+    box.appendChild(b);
+  });
+}
+
+function load() {
+  document.getElementById('sub').textContent = 'Loading…';
+  var done = function (text) { data = JSON.parse(text); render(); };
+  var fail = function (err) { document.getElementById('sub').textContent = 'Could not load readings: ' + err.message + '. Try reloading.'; };
+  if (window.google && google.script && google.script.run) {
+    google.script.run.withSuccessHandler(done).withFailureHandler(fail).getData(hours);
+  } else {
+    fetch(DATA_URL + '?hours=' + hours, { credentials: 'omit' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); }).then(done).catch(fail);
+  }
+  clearTimeout(timer); timer = setTimeout(load, 5 * 60 * 1000);
+}
+
+function col(key) { return data.keys.indexOf(key) + 1; }
+
+function render() {
+  var label = RANGES.filter(function (r) { return r[0] === hours; })[0][1];
+  var sub = data.latest ? 'Latest reading ' + when(data.latest.ts, Date.now() / 1000 - data.latest.ts > 20 * 3600) : 'No readings in this range';
+  document.getElementById('sub').textContent = sub + ' · last ' + label + ' · updates every 5 minutes';
+  renderTiles(); renderCharts(); renderTable();
+  var b = data.bucket, size = b === 300 ? null : b >= 86400 ? '1 day' : b >= 3600 ? b / 3600 + ' h' : b / 60 + ' min';
+  var note = (size ? 'Each point is the average of ' + size + ' of readings.' : 'Each point is one 5-minute reading.') + ' Shaded bands are the target ranges.';
+  if (data.skipped) note += ' ' + data.skipped + ' readings taken during calibration or maintenance are left out.';
+  document.getElementById('note').textContent = note;
+}
+
+function renderTiles() {
+  var box = document.getElementById('tiles'); box.textContent = '';
+  if (!data.latest) return;
+  CHARTS.forEach(function (c) {
+    c.series.forEach(function (s) {
+      var v = data.latest.values[data.keys.indexOf(s[0])];
+      var t = el('div', 'tile');
+      t.appendChild(el('div', 'k', c.series.length > 1 ? s[1] + ' temperature' : c.title));
+      var vv = el('div', 'v', v == null ? 'Offline' : fmt(c.conv ? c.conv(v) : v, c.digits));
+      if (v != null && c.unit) vv.appendChild(el('span', 'u', c.unit));
+      t.appendChild(vv);
+      var rg = data.ranges[s[0]];
+      if (v != null && rg && (v < rg[0] || v > rg[1])) t.appendChild(el('div', 'o', v < rg[0] ? 'Below target' : 'Above target'));
+      box.appendChild(t);
+    });
+  });
+}
+
+function renderCharts() {
+  var box = document.getElementById('charts'); box.textContent = '';
+  CHARTS.forEach(function (c) {
+    var card = el('section', 'chart');
+    var h = el('h2'); h.appendChild(el('span', '', c.title)); if (c.unit) h.appendChild(el('span', 'unit', c.unit));
+    if (c.series.length > 1) {
+      var lg = el('span', 'legend');
+      c.series.forEach(function (s, i) { var it = el('span'); var sw = el('i'); sw.style.background = css('--series-' + (i + 1)); it.appendChild(sw); it.appendChild(document.createTextNode(s[1])); lg.appendChild(it); });
+      h.appendChild(lg);
+    }
+    card.appendChild(h);
+    var plot = el('div', 'plot'); var base = el('canvas'); var over = el('canvas'); var tip = el('div', 'tip');
+    plot.appendChild(base); plot.appendChild(over); plot.appendChild(tip); card.appendChild(plot); box.appendChild(card);
+    c.el = { plot: plot, base: base, over: over, tip: tip };
+    plot.addEventListener('pointermove', function (ev) { var r = plot.getBoundingClientRect(); hover = c.x ? c.x.inv(ev.clientX - r.left) : null; drawHover(c); });
+    plot.addEventListener('pointerleave', function () { hover = null; CHARTS.forEach(clearHover); });
+  });
+  CHARTS.forEach(draw);    // after every card is in place, so each canvas has its final size
+}
+
+function sizeCanvas(cv) {
+  var dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); return { ctx: ctx, w: w, h: h };
+}
+
+function draw(c) {
+  var g = sizeCanvas(c.el.base), ctx = g.ctx, W = g.w, H = g.h;
+  sizeCanvas(c.el.over);
+  var L = 44, R = 10, T = 6, B = 22;
+  var conv = c.conv || function (v) { return v; };
+  var lines = c.series.map(function (s) { var i = col(s[0]); return data.points.map(function (p) { return [p[0], p[i] == null ? null : conv(p[i])]; }); });
+  var vals = []; lines.forEach(function (l) { l.forEach(function (p) { if (p[1] != null) vals.push(p[1]); }); });
+  var rg = data.ranges[c.range] ? data.ranges[c.range].map(conv) : null;
+  var t0 = data.since, t1 = data.now;
+  ctx.font = '11px system-ui, sans-serif';
+  if (!vals.length) { ctx.fillStyle = css('--text-muted'); ctx.fillText('No readings in this range', L, H / 2); c.x = null; return; }
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
+  var pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
+  var x = function (t) { return L + (t - t0) / (t1 - t0) * (W - L - R); };
+  x.inv = function (px) { return t0 + (px - L) / (W - L - R) * (t1 - t0); };
+  var y = function (v) { return T + (hi - v) / (hi - lo) * (H - T - B); };
+  c.x = x; c.y = y; c.lines = lines;
+  // target band
+  if (rg) {
+    var ya = Math.max(T, Math.min(H - B, y(rg[1]))), yb = Math.max(T, Math.min(H - B, y(rg[0])));
+    if (yb > ya) { ctx.fillStyle = css('--band'); ctx.fillRect(L, ya, W - L - R, yb - ya); }
+    ctx.strokeStyle = css('--band-edge'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    [rg[0], rg[1]].forEach(function (v) { var yy = y(v); if (yy > T && yy < H - B) { ctx.beginPath(); ctx.moveTo(L, Math.round(yy) + .5); ctx.lineTo(W - R, Math.round(yy) + .5); ctx.stroke(); } });
+    ctx.setLineDash([]);
+  }
+  // grid and y labels
+  var step = niceStep((hi - lo) / 4), dg = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
+  ctx.fillStyle = css('--text-muted'); ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (var v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    var yy = Math.round(y(v)) + .5; ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(W - R, yy); ctx.stroke();
+    ctx.fillText(v.toFixed(dg), L - 6, yy);
+  }
+  // x labels
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  var span = t1 - t0, n = W < 420 ? 3 : 5;
+  for (var k = 0; k <= n; k++) {
+    var t = t0 + span * k / n, d = new Date(t * 1000);
+    var s = span <= 2 * 86400 ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    ctx.textAlign = k === 0 ? 'left' : k === n ? 'right' : 'center';
+    ctx.fillText(s, x(t), H - B + 6);
+  }
+  // lines: 2px, broken where data is missing
+  var gap = data.bucket * 2.5;
+  lines.forEach(function (l, i) {
+    ctx.strokeStyle = css('--series-' + (i + 1)); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath(); var prev = null;
+    l.forEach(function (p) {
+      if (p[1] == null) { prev = null; return; }
+      if (!prev || p[0] - prev[0] > gap) ctx.moveTo(x(p[0]), y(p[1])); else ctx.lineTo(x(p[0]), y(p[1]));
+      prev = p;
+    });
+    ctx.stroke();
+  });
+}
+
+function niceStep(raw) { var p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p; return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p; }
+
+function nearest(c, t) {
+  var best = null;
+  data.points.forEach(function (p, j) { if (best === null || Math.abs(p[0] - t) < Math.abs(data.points[best][0] - t)) best = j; });
+  return best;
+}
+
+function clearHover(c) { if (!c.el) return; var g = c.el.over.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, c.el.over.width, c.el.over.height); c.el.tip.style.display = 'none'; }
+
+function drawHover(active) {
+  CHARTS.forEach(function (c) {
+    clearHover(c);
+    if (hover == null || !c.x || !data.points.length) return;
+    var j = nearest(c, hover), t = data.points[j][0], px = c.x(t);
+    var dpr = window.devicePixelRatio || 1, g = c.el.over.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var H = c.el.over.clientHeight;
+    g.strokeStyle = css('--text-muted'); g.lineWidth = 1; g.beginPath(); g.moveTo(Math.round(px) + .5, 6); g.lineTo(Math.round(px) + .5, H - 22); g.stroke();
+    var rows = [];
+    c.lines.forEach(function (l, i) {
+      var v = l[j][1]; if (v == null) return;
+      g.fillStyle = css('--series-' + (i + 1)); g.strokeStyle = css('--surface-1'); g.lineWidth = 2;
+      g.beginPath(); g.arc(px, c.y(v), 4, 0, Math.PI * 2); g.fill(); g.stroke();
+      rows.push([fmt(v, c.digits) + (c.unit ? ' ' + c.unit : ''), c.series.length > 1 ? c.series[i][1] : '']);
+    });
+    if (c !== active) return;
+    var tip = c.el.tip; tip.textContent = '';
+    tip.appendChild(el('div', 't', when(t, data.hours > 24)));
+    if (!rows.length) tip.appendChild(el('div', '', 'No reading'));
+    rows.forEach(function (r) { var d = el('div'); d.appendChild(el('b', '', r[0])); if (r[1]) d.appendChild(document.createTextNode(' ' + r[1])); tip.appendChild(d); });
+    tip.style.display = 'block';
+    var w = tip.offsetWidth, W = c.el.plot.clientWidth;
+    tip.style.left = (px + 12 + w > W ? px - 12 - w : px + 12) + 'px';
+  });
+}
+
+function renderTable() {
+  var box = document.getElementById('table'); box.textContent = '';
+  var tb = el('table'), head = el('tr');
+  ['Time', 'Tank °F', 'Sump °F', 'pH', 'Salinity PSU', 'DO mg/L', 'ORP mV'].forEach(function (h) { head.appendChild(el('th', '', h)); });
+  var thead = el('thead'); thead.appendChild(head); tb.appendChild(thead);
+  var body = el('tbody');
+  data.points.slice().reverse().forEach(function (p) {
+    var tr = el('tr'); tr.appendChild(el('td', '', when(p[0], true)));
+    [[col('temp_c'), F, 1], [col('sump_c'), F, 1], [col('ph'), null, 2], [col('sal'), null, 2], [col('do'), null, 2], [col('orp'), null, 0]].forEach(function (s) {
+      var v = p[s[0]]; tr.appendChild(el('td', '', v == null ? '–' : fmt(s[1] ? s[1](v) : v, s[2])));
+    });
+    body.appendChild(tr);
+  });
+  tb.appendChild(body); box.appendChild(tb);
+}
+
+var resizeTimer;
+window.addEventListener('resize', function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(function () { if (data) CHARTS.forEach(draw); }, 150); });
+if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { if (data) render(); });
+buildRanges(); load();
+</script>
+</body>
+</html>
