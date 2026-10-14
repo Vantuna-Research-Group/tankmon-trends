@@ -12,7 +12,7 @@
   --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
   --band: rgba(42, 120, 214, .08); --band-edge: rgba(42, 120, 214, .28);
   --series-1: #2a78d6; --series-2: #eb6834; --alarm: #c4302b;
-  --log-1: #1baf7a; --log-2: #52514e;
+  --log-1: #1baf7a; --log-2: #52514e; --log-3: #7f56c9;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
@@ -21,7 +21,7 @@
     --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a998f;
     --band: rgba(57, 135, 229, .12); --band-edge: rgba(57, 135, 229, .35);
     --series-1: #3987e5; --series-2: #d95926; --alarm: #e66767;
-    --log-1: #199e70; --log-2: #c3c2b7;
+    --log-1: #199e70; --log-2: #c3c2b7; --log-3: #a68ae6;
   }
 }
 :root[data-theme="dark"] {
@@ -30,7 +30,7 @@
   --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a998f;
   --band: rgba(57, 135, 229, .12); --band-edge: rgba(57, 135, 229, .35);
   --series-1: #3987e5; --series-2: #d95926; --alarm: #e66767;
-  --log-1: #199e70; --log-2: #c3c2b7;
+  --log-1: #199e70; --log-2: #c3c2b7; --log-3: #a68ae6;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--surface-0); color: var(--text-primary);
@@ -52,6 +52,7 @@ h1 { font-size: 20px; margin: 0; font-weight: 650; }
 .evlegend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-secondary); margin: -4px 0 10px; }
 .evlegend i { display: inline-block; width: 0; height: 12px; border-left: 2px dashed; vertical-align: middle; margin-right: 6px; }
 .evlegend i.dot { border-left-style: dotted; }
+.evlegend i.solid { border-left-style: solid; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 14px; }
 .tile { background: var(--surface-1); border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px; }
 .tile .k { font-size: 12px; color: var(--text-secondary); }
@@ -247,9 +248,13 @@ function renderTiles() {
   });
 }
 
-function logStyle(label) {   // tank log lines: first kind dashed in aqua, the next dotted in gray
-  var i = Math.max(0, (data.labels || []).indexOf(label));
-  return { color: css(i % 2 ? '--log-2' : '--log-1'), dash: i % 2 ? [1.5, 3] : [5, 3], cls: i % 2 ? 'dot' : '', tag: label.replace(/^DI /, '').charAt(0).toUpperCase() };
+var LOG_STYLES = [   // tank log lines, in LOG_KINDS order: dashed aqua, dotted gray, solid purple
+  { v: '--log-1', dash: [5, 3], cls: '' }, { v: '--log-2', dash: [1.5, 3], cls: 'dot' }, { v: '--log-3', dash: [], cls: 'solid' }];
+function logStyle(label) {
+  var i = Math.max(0, (data.labels || []).indexOf(label)), s = LOG_STYLES[i % LOG_STYLES.length];
+  // tag: first letter of each word, "DI" dropped: DI top-off T, Feeding F, Filter change FC
+  var tag = label.replace(/^DI /, '').split(/\s+/).map(function (w) { return w.charAt(0); }).join('').toUpperCase();
+  return { color: css(s.v), dash: s.dash, cls: s.cls, tag: tag };
 }
 function renderLegend() {
   var box = document.getElementById('evlegend'); box.textContent = '';
