@@ -62,6 +62,9 @@ h1 { font-size: 20px; margin: 0; font-weight: 650; }
 .chart { background: var(--surface-1); border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px 6px; position: relative; }
 .chart h2 { font-size: 14px; font-weight: 600; margin: 0 0 4px; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 .chart h2 .unit { color: var(--text-muted); font-weight: 400; }
+.units { display: inline-flex; gap: 2px; font-weight: 400; background: var(--surface-0); border: 1px solid var(--edge); border-radius: 7px; padding: 2px; }
+.units button { font: inherit; font-size: 12px; border: 0; background: none; color: var(--text-secondary); padding: 2px 7px; border-radius: 5px; cursor: pointer; }
+.units button[aria-pressed="true"] { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 0 0 1px var(--edge); }
 .legend { display: flex; gap: 12px; font-size: 12px; color: var(--text-secondary); font-weight: 400; }
 .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
 .plot { position: relative; height: 190px; touch-action: pan-y; }
@@ -101,14 +104,37 @@ th:first-child, td:first-child { text-align: left; }
 <script>
 var RANGES = [[1, '1 hr'], [3, '3 hr'], [6, '6 hr'], [12, '12 hr'], [24, '24 hr'], [168, '7 days'], [720, '30 days'], [2160, '90 days'], [4320, '180 days']];
 var F = function (c) { return c * 9 / 5 + 32; };
+var SAME = function (v) { return v; };
 // Charts: one per measurement, never two scales on one chart. Temperatures share one.
+// units: [name, stored key (null = the series' own keys), conversion from the stored value, decimals, title].
+// Same choices as the touchscreen. The first is the default.
 var CHARTS = [
-  { title: 'Temperature', unit: '°F', digits: 1, series: [['temp_c', 'Tank'], ['sump_c', 'Sump']], conv: F, range: 'temp_c' },
-  { title: 'pH', unit: '', digits: 2, series: [['ph', 'pH']], range: 'ph' },
-  { title: 'Salinity', unit: 'PSU', digits: 1, series: [['sal', 'Salinity']], range: 'sal' },
-  { title: 'Dissolved oxygen', unit: 'mg/L', digits: 1, series: [['do', 'DO']], range: 'do' },
-  { title: 'ORP', unit: 'mV', digits: 0, series: [['orp', 'ORP']], range: 'orp' }
+  { title: 'Temperature', series: [['temp_c', 'Tank'], ['sump_c', 'Sump']],
+    units: [['°F', null, F, 1], ['°C', null, SAME, 1]] },
+  { title: 'pH', series: [['ph', 'pH']], units: [['', null, SAME, 2]] },
+  { title: 'Salinity', series: [['sal', 'Salinity']],
+    units: [['PSU', 'sal', SAME, 1], ['ppt', 'sal', function (v) { return v * 35.16504 / 35; }, 1],
+            ['µS/cm', 'ec', SAME, 0, 'Conductivity'], ['S/m', 'ec', function (v) { return v / 10000; }, 2, 'Conductivity']] },
+  { title: 'Dissolved oxygen', series: [['do', 'DO']],
+    units: [['mg/L', 'do', SAME, 1], ['% sat', 'do_pct', SAME, 0], ['ppm', 'do', function (v) { return v / 1.025; }, 1]] },
+  { title: 'ORP', series: [['orp', 'ORP']], units: [['mV', null, SAME, 0]] }
 ];
+var UNIT_PREFS = {};
+try { UNIT_PREFS = JSON.parse(localStorage.getItem('tankmonUnits') || '{}') || {}; } catch (e) {}
+// Point a chart at its chosen unit: sets title, unit, conv, digits, series, and range (the stored key for the target band).
+function applyUnit(c) {
+  if (!c.base) { c.base = c.series; c.baseTitle = c.title; }
+  var u = c.units.filter(function (x) { return x[0] === UNIT_PREFS[c.baseTitle]; })[0] || c.units[0];
+  c.unit = u[0]; c.conv = u[2]; c.digits = u[3]; c.title = u[4] || c.baseTitle;
+  c.series = u[1] ? [[u[1], c.base[0][1]]] : c.base;
+  c.range = u[1] || c.base[0][0];
+}
+function setUnit(c, name) {
+  UNIT_PREFS[c.baseTitle] = name;
+  try { localStorage.setItem('tankmonUnits', JSON.stringify(UNIT_PREFS)); } catch (e) {}
+  applyUnit(c); renderTiles(); renderCharts(); renderTable();
+}
+CHARTS.forEach(applyUnit);
 var DATA_URL = 'https://script.google.com/macros/s/AKfycbxXAemYxkqBEZi3tRjn0YR3WY0q92_eOrzdaaWCXQoJnv5EJPiNs1zYkZ-4Wdr7sKZr/exec';   // set in the hosted copy; empty when served by Apps Script
 var hours = 24, data = null, timer = null, hover = null;
 var custom = null;   // {start, end} in Unix seconds while the Custom range is picked
@@ -116,7 +142,7 @@ try { var h = Number(location.hash.slice(1)); if (RANGES.some(function (r) { ret
 
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-function fmt(v, d) { return v == null || isNaN(v) ? '–' : Number(v).toFixed(d); }
+function fmt(v, d) { return v == null || isNaN(v) ? '–' : Number(v).toLocaleString([], { minimumFractionDigits: d, maximumFractionDigits: d }); }
 function when(ts, withDate) {
   var d = new Date(ts * 1000);
   var t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -227,7 +253,7 @@ function logStyle(label) {   // tank log lines: first kind dashed in aqua, the n
 }
 function renderLegend() {
   var box = document.getElementById('evlegend'); box.textContent = '';
-  if (!data.events_shown || !(data.labels || []).length) return;
+  if (!data.events_shown || !(data.labels || []).length || !(data.events || []).length) return;
   data.labels.forEach(function (label) {
     var n = data.events.filter(function (e) { return e[1] === label; }).length, st = logStyle(label);
     var it = el('span'); var sw = el('i', st.cls); sw.style.borderColor = st.color;
@@ -240,7 +266,15 @@ function renderCharts() {
   var box = document.getElementById('charts'); box.textContent = '';
   CHARTS.forEach(function (c) {
     var card = el('section', 'chart');
-    var h = el('h2'); h.appendChild(el('span', '', c.title)); if (c.unit) h.appendChild(el('span', 'unit', c.unit));
+    var h = el('h2'); h.appendChild(el('span', '', c.title));
+    if (c.units.length > 1) {          // unit choices, like the touchscreen
+      var seg = el('span', 'units'); seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', c.baseTitle + ' units');
+      c.units.forEach(function (u) {
+        var b = el('button', '', u[0]); b.type = 'button'; b.setAttribute('aria-pressed', u[0] === c.unit ? 'true' : 'false');
+        b.onclick = function () { setUnit(c, u[0]); }; seg.appendChild(b);
+      });
+      h.appendChild(seg);
+    } else if (c.unit) h.appendChild(el('span', 'unit', c.unit));
     if (c.series.length > 1) {
       var lg = el('span', 'legend');
       c.series.forEach(function (s, i) { var it = el('span'); var sw = el('i'); sw.style.background = css('--series-' + (i + 1)); it.appendChild(sw); it.appendChild(document.createTextNode(s[1])); lg.appendChild(it); });
@@ -369,15 +403,20 @@ function drawHover(active) {
 
 function renderTable() {
   var box = document.getElementById('table'); box.textContent = '';
-  var tb = el('table'), head = el('tr');
-  ['Time', 'Tank °F', 'Sump °F', 'pH', 'Salinity PSU', 'DO mg/L', 'ORP mV'].forEach(function (h) { head.appendChild(el('th', '', h)); });
+  var tb = el('table'), head = el('tr'), cols = [];
+  CHARTS.forEach(function (c) {           // one column per line on the charts, in the units picked there
+    c.series.forEach(function (s) {
+      cols.push({ i: col(s[0]), conv: c.conv, digits: c.digits,
+                  head: (c.series.length > 1 ? s[1] : c.title) + (c.unit ? ' ' + c.unit : '') });
+    });
+  });
+  head.appendChild(el('th', '', 'Time'));
+  cols.forEach(function (k) { head.appendChild(el('th', '', k.head)); });
   var thead = el('thead'); thead.appendChild(head); tb.appendChild(thead);
   var body = el('tbody');
   data.points.slice().reverse().forEach(function (p) {
     var tr = el('tr'); tr.appendChild(el('td', '', when(p[0], true)));
-    [[col('temp_c'), F, 1], [col('sump_c'), F, 1], [col('ph'), null, 2], [col('sal'), null, 2], [col('do'), null, 2], [col('orp'), null, 0]].forEach(function (s) {
-      var v = p[s[0]]; tr.appendChild(el('td', '', v == null ? '–' : fmt(s[1] ? s[1](v) : v, s[2])));
-    });
+    cols.forEach(function (k) { var v = p[k.i]; tr.appendChild(el('td', '', v == null ? '–' : fmt(k.conv(v), k.digits))); });
     body.appendChild(tr);
   });
   tb.appendChild(body); box.appendChild(tb);
