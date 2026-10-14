@@ -12,6 +12,7 @@
   --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
   --band: rgba(42, 120, 214, .08); --band-edge: rgba(42, 120, 214, .28);
   --series-1: #2a78d6; --series-2: #eb6834; --alarm: #c4302b;
+  --log-1: #1baf7a; --log-2: #52514e;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
@@ -20,6 +21,7 @@
     --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a998f;
     --band: rgba(57, 135, 229, .12); --band-edge: rgba(57, 135, 229, .35);
     --series-1: #3987e5; --series-2: #d95926; --alarm: #e66767;
+    --log-1: #199e70; --log-2: #c3c2b7;
   }
 }
 :root[data-theme="dark"] {
@@ -28,6 +30,7 @@
   --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a998f;
   --band: rgba(57, 135, 229, .12); --band-edge: rgba(57, 135, 229, .35);
   --series-1: #3987e5; --series-2: #d95926; --alarm: #e66767;
+  --log-1: #199e70; --log-2: #c3c2b7;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--surface-0); color: var(--text-primary);
@@ -39,6 +42,16 @@ h1 { font-size: 20px; margin: 0; font-weight: 650; }
 .ranges button { font: inherit; font-size: 14px; padding: 6px 11px; border-radius: 8px; cursor: pointer;
   border: 1px solid var(--edge); background: var(--surface-1); color: var(--text-secondary); }
 .ranges button[aria-pressed="true"] { background: var(--text-primary); color: var(--surface-1); border-color: var(--text-primary); }
+.custom { background: var(--surface-1); border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px; margin: -6px 0 14px;
+  display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: center; font-size: 13px; }
+.custom[hidden] { display: none; }
+.custom label { color: var(--text-secondary); white-space: nowrap; }
+.custom label b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.custom input { width: 100%; min-width: 0; accent-color: var(--text-primary); }
+.custom .hint { grid-column: 1 / -1; color: var(--text-muted); font-size: 12px; }
+.evlegend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-secondary); margin: -4px 0 10px; }
+.evlegend i { display: inline-block; width: 0; height: 12px; border-left: 2px dashed; vertical-align: middle; margin-right: 6px; }
+.evlegend i.dot { border-left-style: dotted; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 14px; }
 .tile { background: var(--surface-1); border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px; }
 .tile .k { font-size: 12px; color: var(--text-secondary); }
@@ -74,7 +87,13 @@ th:first-child, td:first-child { text-align: left; }
   <h1>VRG Marine Aquarium</h1>
   <p class="sub" id="sub">Loading…</p>
   <div class="ranges" id="ranges" role="group" aria-label="Time range"></div>
+  <div class="custom" id="custom" hidden>
+    <label for="cFrom">From <b id="cFromT"></b></label><input type="range" id="cFrom" step="3600">
+    <label for="cTo">To <b id="cToT"></b></label><input type="range" id="cTo" step="3600">
+    <div class="hint" id="cHint"></div>
+  </div>
   <div class="tiles" id="tiles"></div>
+  <div class="evlegend" id="evlegend"></div>
   <div class="charts" id="charts"></div>
   <p class="note" id="note"></p>
   <details id="tableBox"><summary>Show the numbers as a table</summary><div class="tablewrap" id="table"></div></details>
@@ -92,6 +111,7 @@ var CHARTS = [
 ];
 var DATA_URL = 'https://script.google.com/macros/s/AKfycbxXAemYxkqBEZi3tRjn0YR3WY0q92_eOrzdaaWCXQoJnv5EJPiNs1zYkZ-4Wdr7sKZr/exec';   // set in the hosted copy; empty when served by Apps Script
 var hours = 24, data = null, timer = null, hover = null;
+var custom = null;   // {start, end} in Unix seconds while the Custom range is picked
 try { var h = Number(location.hash.slice(1)); if (RANGES.some(function (r) { return r[0] === h; })) hours = h; } catch (e) {}
 
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
@@ -105,25 +125,65 @@ function when(ts, withDate) {
 
 function buildRanges() {
   var box = document.getElementById('ranges');
+  var press = function (b) { Array.prototype.forEach.call(box.children, function (c) { c.setAttribute('aria-pressed', c === b ? 'true' : 'false'); }); };
   RANGES.forEach(function (r) {
     var b = el('button', '', r[1]);
     b.type = 'button';
     b.setAttribute('aria-pressed', r[0] === hours ? 'true' : 'false');
-    b.onclick = function () { hours = r[0]; try { history.replaceState(null, '', '#' + hours); } catch (e) {}
-      Array.prototype.forEach.call(box.children, function (c) { c.setAttribute('aria-pressed', c === b ? 'true' : 'false'); });
-      load(); };
+    b.onclick = function () { hours = r[0]; custom = null; document.getElementById('custom').hidden = true;
+      try { history.replaceState(null, '', '#' + hours); } catch (e) {}
+      press(b); load(); };
     box.appendChild(b);
   });
+  var c = el('button', '', 'Custom');
+  c.type = 'button'; c.setAttribute('aria-pressed', 'false');
+  c.onclick = function () { press(c); openCustom(); };
+  box.appendChild(c);
+}
+
+// Custom range: two sliders from the oldest saved reading to now, in 1-hour steps.
+function openCustom() {
+  var now = Math.floor(Date.now() / 1000 / 3600) * 3600 + 3600;
+  var first = data && data.first_ts ? Math.floor(data.first_ts / 3600) * 3600 : now - 30 * 86400;
+  var from = document.getElementById('cFrom'), to = document.getElementById('cTo');
+  [from, to].forEach(function (s) { s.min = first; s.max = now; });
+  if (!custom) custom = { start: Math.max(first, now - 7 * 86400), end: now };
+  from.value = custom.start; to.value = custom.end;
+  document.getElementById('custom').hidden = false;
+  sliderText(); load();
+}
+function sliderText() {
+  var from = document.getElementById('cFrom'), to = document.getElementById('cTo');
+  document.getElementById('cFromT').textContent = when(Number(from.value), true);
+  document.getElementById('cToT').textContent = Number(to.value) >= Number(to.max) ? 'Now' : when(Number(to.value), true);
+  var days = (Number(to.value) - Number(from.value)) / 86400;
+  document.getElementById('cHint').textContent = 'Saved readings start ' + when(Number(from.min), true) + '. '
+    + (days <= 30 ? 'Tank log entries show as lines.' : 'Tank log lines show for 30 days or less.');
+}
+function slid(ev) {
+  var from = document.getElementById('cFrom'), to = document.getElementById('cTo');
+  if (Number(to.value) - Number(from.value) < 3600) {      // keep at least an hour between them
+    if (ev.target === from) from.value = Number(to.value) - 3600; else to.value = Number(from.value) + 3600;
+  }
+  sliderText();
+}
+function slidDone() {
+  var to = document.getElementById('cTo');
+  custom = { start: Number(document.getElementById('cFrom').value), end: Number(to.value), live: Number(to.value) >= Number(to.max) };
+  load();
 }
 
 function load() {
   document.getElementById('sub').textContent = 'Loading…';
   var done = function (text) { data = JSON.parse(text); render(); };
   var fail = function (err) { document.getElementById('sub').textContent = 'Could not load readings: ' + err.message + '. Try reloading.'; };
+  if (custom && custom.live) custom.end = Math.floor(Date.now() / 1000 / 3600) * 3600 + 3600;   // "To: Now" keeps up
+  var q = custom ? '?start=' + custom.start + '&end=' + custom.end : '?hours=' + hours;
   if (window.google && google.script && google.script.run) {
-    google.script.run.withSuccessHandler(done).withFailureHandler(fail).getData(hours);
+    var run = google.script.run.withSuccessHandler(done).withFailureHandler(fail);
+    if (custom) run.getData(null, custom.start, custom.end); else run.getData(hours);
   } else {
-    fetch(DATA_URL + '?hours=' + hours, { credentials: 'omit' })
+    fetch(DATA_URL + q, { credentials: 'omit' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); }).then(done).catch(fail);
   }
   clearTimeout(timer); timer = setTimeout(load, 5 * 60 * 1000);
@@ -132,10 +192,11 @@ function load() {
 function col(key) { return data.keys.indexOf(key) + 1; }
 
 function render() {
-  var label = RANGES.filter(function (r) { return r[0] === hours; })[0][1];
+  var label = custom ? when(data.since, true) + ' to ' + (custom.live ? 'now' : when(data.until, true))
+    : 'last ' + RANGES.filter(function (r) { return r[0] === hours; })[0][1];
   var sub = data.latest ? 'Latest reading ' + when(data.latest.ts, Date.now() / 1000 - data.latest.ts > 20 * 3600) : 'No readings in this range';
-  document.getElementById('sub').textContent = sub + ' · last ' + label + ' · updates every 5 minutes';
-  renderTiles(); renderCharts(); renderTable();
+  document.getElementById('sub').textContent = sub + ' · ' + label + ' · updates every 5 minutes';
+  renderTiles(); renderLegend(); renderCharts(); renderTable();
   var b = data.bucket, size = b === 300 ? null : b >= 86400 ? '1 day' : b >= 3600 ? b / 3600 + ' h' : b / 60 + ' min';
   var note = (size ? 'Each point is the average of ' + size + ' of readings.' : 'Each point is one 5-minute reading.') + ' Shaded bands are the target ranges.';
   if (data.skipped) note += ' ' + data.skipped + ' readings taken during calibration or maintenance are left out.';
@@ -157,6 +218,21 @@ function renderTiles() {
       if (v != null && rg && (v < rg[0] || v > rg[1])) t.appendChild(el('div', 'o', v < rg[0] ? 'Below target' : 'Above target'));
       box.appendChild(t);
     });
+  });
+}
+
+function logStyle(label) {   // tank log lines: first kind dashed in aqua, the next dotted in gray
+  var i = Math.max(0, (data.labels || []).indexOf(label));
+  return { color: css(i % 2 ? '--log-2' : '--log-1'), dash: i % 2 ? [1.5, 3] : [5, 3], cls: i % 2 ? 'dot' : '', tag: label.replace(/^DI /, '').charAt(0).toUpperCase() };
+}
+function renderLegend() {
+  var box = document.getElementById('evlegend'); box.textContent = '';
+  if (!data.events_shown || !(data.labels || []).length) return;
+  data.labels.forEach(function (label) {
+    var n = data.events.filter(function (e) { return e[1] === label; }).length, st = logStyle(label);
+    var it = el('span'); var sw = el('i', st.cls); sw.style.borderColor = st.color;
+    it.appendChild(sw); it.appendChild(document.createTextNode(label + ' (' + st.tag + ') · ' + n + ' in this range'));
+    box.appendChild(it);
   });
 }
 
@@ -194,7 +270,7 @@ function draw(c) {
   var lines = c.series.map(function (s) { var i = col(s[0]); return data.points.map(function (p) { return [p[0], p[i] == null ? null : conv(p[i])]; }); });
   var vals = []; lines.forEach(function (l) { l.forEach(function (p) { if (p[1] != null) vals.push(p[1]); }); });
   var rg = data.ranges[c.range] ? data.ranges[c.range].map(conv) : null;
-  var t0 = data.since, t1 = data.now;
+  var t0 = data.since, t1 = data.until || data.now;
   ctx.font = '11px system-ui, sans-serif';
   if (!vals.length) { ctx.fillStyle = css('--text-muted'); ctx.fillText('No readings in this range', L, H / 2); c.x = null; return; }
   var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
@@ -228,6 +304,15 @@ function draw(c) {
     ctx.textAlign = k === 0 ? 'left' : k === n ? 'right' : 'center';
     ctx.fillText(s, x(t), H - B + 6);
   }
+  // tank log entries: a full-height line with a letter at the top
+  (data.events || []).forEach(function (ev) {
+    if (ev[0] < t0 || ev[0] > t1) return;
+    var st = logStyle(ev[1]), xx = Math.round(x(ev[0])) + .5;
+    ctx.strokeStyle = st.color; ctx.lineWidth = 1.5; ctx.setLineDash(st.dash);
+    ctx.beginPath(); ctx.moveTo(xx, T + 11); ctx.lineTo(xx, H - B); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = st.color; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(st.tag, xx, T);
+  });
   // lines: 2px, broken where data is missing
   var gap = data.bucket * 2.5;
   lines.forEach(function (l, i) {
@@ -269,8 +354,12 @@ function drawHover(active) {
     });
     if (c !== active) return;
     var tip = c.el.tip; tip.textContent = '';
-    tip.appendChild(el('div', 't', when(t, data.hours > 24)));
+    tip.appendChild(el('div', 't', when(t, (data.until || data.now) - data.since > 86400)));
     if (!rows.length) tip.appendChild(el('div', '', 'No reading'));
+    var near = Math.max(data.bucket, 1800);
+    (data.events || []).forEach(function (ev) {
+      if (Math.abs(ev[0] - t) <= near) tip.appendChild(el('div', 't', ev[1] + ' ' + when(ev[0], data.until - data.since > 86400)));
+    });
     rows.forEach(function (r) { var d = el('div'); d.appendChild(el('b', '', r[0])); if (r[1]) d.appendChild(document.createTextNode(' ' + r[1])); tip.appendChild(d); });
     tip.style.display = 'block';
     var w = tip.offsetWidth, W = c.el.plot.clientWidth;
@@ -297,6 +386,7 @@ function renderTable() {
 var resizeTimer;
 window.addEventListener('resize', function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(function () { if (data) CHARTS.forEach(draw); }, 150); });
 if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { if (data) render(); });
+['cFrom', 'cTo'].forEach(function (id) { var s = document.getElementById(id); s.addEventListener('input', slid); s.addEventListener('change', slidDone); });
 buildRanges(); load();
 </script>
 </body>
